@@ -20,3 +20,5 @@ SHELL ["/bin/env-shell"]
 ENTRYPOINT ["/bin/env-exec"]
 
 ADD buildpack /usr/bin/buildpack
+
+ADD start /usr/bin/start
