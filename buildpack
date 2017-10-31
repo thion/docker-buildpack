@@ -174,26 +174,53 @@ compile() {
 
   echo "Compiling $name..."
 
-  setup
+	(
+		cd "$buildpack_path/$name"
 
-  chmod a+x "$buildpack_path/$name/bin/compile"
+    setup
 
-  "$buildpack_path/$name/bin/compile" "$app_path" "$cache_path" "$env_path"
+		chmod a+x bin/compile
 
-  if [ -e "$buildpack_path/$name/bin/release" ]; then
-    chmod a+x "$buildpack_path/$name/bin/release"
-    "$buildpack_path/$name/bin/release" "$app_path" "$cache_path" > "$app_path/.release"
-    ruby -e "require 'yaml';((YAML.load_file(ENV['app_path'] + '/.release') || {})['config_vars'] || {}).each{|k,v| puts \"#{k}=\\\"#{v}\\\"\"}" >> "$app_path/.env.production"
-  fi
+		bin/compile "$app_path" "$cache_path" "$env_path"
 
-  rm -rf "$cache_path"
-  rm -rf "$env_path"
+		if [ -e bin/release ]; then
+			chmod a+x bin/release
+			bin/release "$app_path" "$cache_path" > "$app_path/.release"
+			ruby -e "require 'yaml';((YAML.load_file(ENV['app_path'] + '/.release') || {})['config_vars'] || {}).each{|k,v| puts \"#{k}=\\\"#{v}\\\"\"}" >> "$app_path/.env.production"
+		fi
+
+		rm -rf "$cache_path"
+		rm -rf "$env_path"
+	)
 }
+
+buildpack_url_clojure="https://github.com/heroku/heroku-buildpack-clojure"
+buildpack_url_erlang="https://github.com/heroku/heroku-buildpack-erlang"
+buildpack_url_go="https://github.com/heroku/heroku-buildpack-go"
+buildpack_url_gradle="https://github.com/heroku/heroku-buildpack-gradle"
+buildpack_url_grails="https://github.com/heroku/heroku-buildpack-grails"
+buildpack_url_java="https://github.com/heroku/heroku-buildpack-java"
+buildpack_url_nodejs="https://github.com/heroku/heroku-buildpack-nodejs"
+buildpack_url_php="https://github.com/heroku/heroku-buildpack-php"
+buildpack_url_python="https://github.com/heroku/heroku-buildpack-python"
+buildpack_url_ruby="https://github.com/heroku/heroku-buildpack-ruby"
+buildpack_url_scala="https://github.com/heroku/heroku-buildpack-scala"
 
 install() {
   ensure-paths
 
-  declare url="${1%#*}" branch="${1#*#}"
+  full="$1"
+  if [[ $full =~ ^[a-z]+$ ]]; then
+    buildpack_var="buildpack_url_$full"
+    if [[ -z "${!buildpack_var}" ]]; then
+      echo "No such buildpack: $full"
+      exit 1
+    fi
+
+    full="${!buildpack_var}"
+  fi
+
+  declare url="${full%#*}" branch="${full#*#}"
 
   if [ "$branch" == "$url" ]; then
     branch=""
