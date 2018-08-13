@@ -136,6 +136,4 @@ install() {
   compile "$name"
 }
 
-shift
-
 install "$@"
