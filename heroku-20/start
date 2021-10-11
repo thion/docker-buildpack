@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+[[ $DEBUG ]] && set -x
+
+if [[ -f Procfile ]]; then
+	command="$(ruby -e "require 'yaml';puts YAML.load_file('Procfile')['$1']")"
+elif [[ -f .release ]]; then
+	command="$(ruby -e "require 'yaml';puts (YAML.load_file('.release')['default_process_types'] || {})['$1']")"
+fi
+
+
+if [[ -z "$command" ]]; then
+	>&2 echo "Command not found in Procfile: $1"
+	exit 1
+fi
+
+exec bash -c "$command"

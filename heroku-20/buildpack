@@ -1,0 +1,139 @@
+#!/bin/bash
+
+set -eo pipefail
+
+export app_path=/app
+export buildpack_path=/opt
+export env_path=/tmp/env
+export cache_path=/tmp/cache
+
+ensure-paths() {
+  mkdir -p \
+    "$app_path" \
+    "$env_path" \
+    "$cache_path" \
+    "$buildpack_path"
+}
+
+download() {
+  declare desc="Install buildpack from Git URL and optional branch"
+  declare url="$1" branch="$2" name="$3"
+  local target_path="$buildpack_path/${name:-$(basename $url)}"
+  if [[ "$(git ls-remote "$url" &> /dev/null; echo $?)" -eq 0 ]]; then
+    if [[ "$branch" ]]; then
+      echo "Installing $url#$branch..."
+      echo "Cloning into '$target_path'..."
+      git clone --branch "$branch" --quiet --depth 1 "$url" "$target_path" > /dev/null
+    else
+      echo "Installing $url..."
+      echo "Cloning into '$target_path'..."
+      git clone --quiet --depth=1 "$url" "$target_path" > /dev/null
+    fi
+  else
+    local tar_args
+    case "$url" in
+      *.tgz|*.tar.gz)
+        target_path="${target_path//.tgz}"
+        target_path="${target_path//.tar.gz}"
+        tar_args="-xzC"
+      ;;
+      *.tbz|*.tar.bz)
+        target_path="${target_path//.tbz}"
+        target_path="${target_path//.tar.bz}"
+        tar_args="-xjC"
+      ;;
+      *.tar)
+        target_path="${target_path//.tar}"
+        tar_args="-xC"
+      ;;
+    esac
+    echo "Downloading '$url' into '$target_path'..."
+    mkdir -p "$target_path"
+    curl -s --retry 2 "$url" | tar "$tar_args" "$target_path"
+    chown -R root:root "$target_path"
+    chmod 755 "$target_path"
+  fi
+  rm -rf "$target_path/.git"
+}
+
+setup() {
+  local buildpacks=($buildpack_path/*)
+  for buildpack in "${buildpacks[@]}"; do
+    if [ -e $buildpack/export ]; then
+      source $buildpack/export
+    fi
+  done
+}
+
+compile() {
+  declare name="$1"
+
+  echo "Compiling $name..."
+
+  cd "$buildpack_path/$name"
+  
+  setup
+  
+  chmod a+x bin/compile
+  
+  bin/compile "$app_path" "$cache_path" "$env_path"
+  
+  if [ -e bin/release ]; then
+  	chmod a+x bin/release
+  	bin/release "$app_path" "$cache_path" > "$app_path/.release"
+  	ruby -e "require 'yaml';((YAML.load_file(ENV['app_path'] + '/.release') || {})['config_vars'] || {}).each{|k,v| puts \"#{k}=\\\"#{v}\\\"\"}" >> "$app_path/.env.production"
+  fi
+  
+  rm -rf "$cache_path"
+  rm -rf "$env_path"
+}
+
+buildpack_url_clojure="https://github.com/heroku/heroku-buildpack-clojure"
+buildpack_url_erlang="https://github.com/heroku/heroku-buildpack-erlang"
+buildpack_url_go="https://github.com/heroku/heroku-buildpack-go"
+buildpack_url_gradle="https://github.com/heroku/heroku-buildpack-gradle"
+buildpack_url_grails="https://github.com/heroku/heroku-buildpack-grails"
+buildpack_url_java="https://github.com/heroku/heroku-buildpack-java"
+buildpack_url_nodejs="https://github.com/heroku/heroku-buildpack-nodejs"
+buildpack_url_php="https://github.com/heroku/heroku-buildpack-php"
+buildpack_url_python="https://github.com/heroku/heroku-buildpack-python"
+buildpack_url_ruby="https://github.com/heroku/heroku-buildpack-ruby"
+buildpack_url_scala="https://github.com/heroku/heroku-buildpack-scala"
+
+install() {
+  ensure-paths
+  
+  full="${@:~0}"
+  if [[ $full =~ ^[a-z]+$ ]]; then
+    buildpack_var="buildpack_url_$full"
+    if [[ -z "${!buildpack_var}" ]]; then
+      echo "No such buildpack: $full"
+      exit 1
+    fi
+  
+    full="${!buildpack_var}"
+  fi
+  
+  declare url="${full%#*}" branch="${full#*#}"
+  
+  if [ "$branch" == "$url" ]; then
+    branch=""
+  fi
+  
+  if [[ ! "$url" ]]; then
+    for buildpack in $(cat .buildpacks); do
+      install "$buildpack"
+    done
+  
+    return
+  fi
+  
+  declare last="${url##*/}"
+  declare name="${last%.*}"
+  
+  download "$url" "$branch" "$name"
+  
+  compile "$name"
+}
+
+install "$@"
